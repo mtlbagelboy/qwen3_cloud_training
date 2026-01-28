@@ -47,9 +47,18 @@ def main():
     else:
         audio = result
 
+    # If it's a list, take first element
+    if isinstance(audio, list):
+        audio = audio[0]
+        print(f"Extracted from list")
+
     # Convert to numpy if needed
     if hasattr(audio, 'cpu'):
         audio = audio.cpu().numpy()
+
+    # Convert to numpy array if still not
+    import numpy as np
+    audio = np.array(audio)
 
     # Handle shape - might be (1, samples) or (samples,)
     if len(audio.shape) > 1:
