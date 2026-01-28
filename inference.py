@@ -28,8 +28,8 @@ def main():
 
     model = Qwen3TTSModel.from_pretrained(
         args.model_path,
-        dtype=dtype,
-        device=device,
+        torch_dtype=dtype,
+        device_map=device,
     )
 
     print(f"Generating speech for: {args.text}")
