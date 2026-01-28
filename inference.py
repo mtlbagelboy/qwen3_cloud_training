@@ -33,42 +33,24 @@ def main():
     )
 
     print(f"Generating speech for: {args.text}")
+    print(f"Using speaker: {args.speaker}")
+    print("Starting generation (this may take 30-60s)...")
 
     # Generate audio with custom voice
-    result = model.generate_custom_voice(
+    # Returns (wavs, sample_rate) according to official docs
+    wavs, sr = model.generate_custom_voice(
         text=args.text,
         speaker=args.speaker,
         language="english",
     )
+    print(f"Generation complete. Sample rate: {sr}")
 
-    # Handle different return formats
-    if isinstance(result, tuple):
-        audio = result[0]  # First element is usually the audio
-        print(f"Got tuple with {len(result)} elements, using first")
-    else:
-        audio = result
-
-    # If it's a list, take first element
-    if isinstance(audio, list):
-        audio = audio[0]
-        print(f"Extracted from list")
-
-    # Convert to numpy if needed
-    if hasattr(audio, 'cpu'):
-        audio = audio.cpu().numpy()
-
-    # Convert to numpy array if still not
-    import numpy as np
-    audio = np.array(audio)
-
-    # Handle shape - might be (1, samples) or (samples,)
-    if len(audio.shape) > 1:
-        audio = audio.squeeze()
-
-    print(f"Audio shape: {audio.shape}")
+    # wavs is a list of audio arrays, sr is sample rate
+    audio = wavs[0]
+    print(f"Audio length: {len(audio)} samples ({len(audio)/sr:.2f}s)")
 
     # Save output
-    sf.write(args.output, audio, 24000)
+    sf.write(args.output, audio, sr)
     print(f"Saved to {args.output}")
 
 if __name__ == "__main__":
