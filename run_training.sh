@@ -10,7 +10,7 @@ python train.py \
     --lr 2e-5 \
     --num_epochs 3 \
     --speaker_name michael_douglas \
-    --save_every_n_steps 500
+    --save_every_n_steps 0
 
 echo ""
 echo "Training complete! Checkpoints saved to ./output/"

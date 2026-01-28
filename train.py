@@ -158,10 +158,8 @@ def train():
         avg_epoch_loss = epoch_loss / len(train_dataloader)
         accelerator.print(f"Epoch {epoch} completed | Avg Loss: {avg_epoch_loss:.4f}")
 
-        # Save epoch checkpoint
+        # Save only best checkpoint to save disk space
         if accelerator.is_main_process:
-            save_checkpoint(accelerator, model, qwen3tts, MODEL_PATH, args, f"checkpoint-epoch-{epoch}", target_speaker_embedding)
-
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 save_checkpoint(accelerator, model, qwen3tts, MODEL_PATH, args, "checkpoint-best", target_speaker_embedding)
