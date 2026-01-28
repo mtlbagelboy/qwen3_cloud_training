@@ -3,6 +3,16 @@
 
 set -e
 
+# Download base model locally if not present
+if [ ! -d "./Qwen3-TTS-12Hz-1.7B-Base" ]; then
+    echo "=== Downloading base model locally ==="
+    python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='./Qwen3-TTS-12Hz-1.7B-Base')
+print('Model downloaded!')
+"
+fi
+
 echo "=== Step 1: Prepare audio codes using official tokenizer ==="
 python prepare_data.py \
     --device cuda:0 \
@@ -13,7 +23,7 @@ python prepare_data.py \
 echo ""
 echo "=== Step 2: Fine-tune model ==="
 python sft_12hz.py \
-    --init_model_path Qwen/Qwen3-TTS-12Hz-1.7B-Base \
+    --init_model_path ./Qwen3-TTS-12Hz-1.7B-Base \
     --output_model_path ./output \
     --train_jsonl train_with_codes.jsonl \
     --batch_size 2 \
