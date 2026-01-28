@@ -34,8 +34,8 @@ def main():
 
     print(f"Generating speech for: {args.text}")
 
-    # Generate audio
-    audio = model.generate(
+    # Generate audio with custom voice
+    audio = model.generate_custom_voice(
         text=args.text,
         speaker=args.speaker,
     )
