@@ -19,7 +19,7 @@ def main():
 
     result = model.generate_voice_clone(
         text=args.text,
-        reference_audio=args.ref_audio,
+        ref_audio=args.ref_audio,
         language="english",
     )
 
