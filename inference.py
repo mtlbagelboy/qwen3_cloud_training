@@ -35,10 +35,27 @@ def main():
     print(f"Generating speech for: {args.text}")
 
     # Generate audio with custom voice
-    audio = model.generate_custom_voice(
+    result = model.generate_custom_voice(
         text=args.text,
         speaker=args.speaker,
     )
+
+    # Handle different return formats
+    if isinstance(result, tuple):
+        audio = result[0]  # First element is usually the audio
+        print(f"Got tuple with {len(result)} elements, using first")
+    else:
+        audio = result
+
+    # Convert to numpy if needed
+    if hasattr(audio, 'cpu'):
+        audio = audio.cpu().numpy()
+
+    # Handle shape - might be (1, samples) or (samples,)
+    if len(audio.shape) > 1:
+        audio = audio.squeeze()
+
+    print(f"Audio shape: {audio.shape}")
 
     # Save output
     sf.write(args.output, audio, 24000)
