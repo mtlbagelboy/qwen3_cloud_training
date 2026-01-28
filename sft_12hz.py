@@ -123,8 +123,9 @@ def train():
             if step % 10 == 0:
                 accelerator.print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
-        if accelerator.is_main_process:
-            output_dir = os.path.join(args.output_model_path, f"checkpoint-epoch-{epoch}")
+        # Only save on final epoch to conserve disk space
+        if accelerator.is_main_process and epoch == args.num_epochs - 1:
+            output_dir = os.path.join(args.output_model_path, "checkpoint-final")
             shutil.copytree(MODEL_PATH, output_dir, dirs_exist_ok=True)
 
             input_config_file = os.path.join(MODEL_PATH, "config.json")
