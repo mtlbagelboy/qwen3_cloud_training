@@ -30,6 +30,7 @@ def main():
         args.model_path,
         torch_dtype=dtype,
         device_map=device,
+        attn_implementation="flash_attention_2",
     )
 
     print(f"Generating speech for: {args.text}")
