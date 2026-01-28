@@ -1,0 +1,20 @@
+# Audio files (too large for git)
+audio/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Training outputs
+output/
+logs/
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# System
+.DS_Store
