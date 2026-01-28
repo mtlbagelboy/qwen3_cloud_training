@@ -17,9 +17,15 @@ def main():
     print(f"Cloning voice from: {args.ref_audio}")
     print(f"Generating: {args.text}")
 
+    # Use x_vector_only_mode to skip needing reference text
+    prompt = model.create_voice_clone_prompt(
+        ref_audio=args.ref_audio,
+        x_vector_only_mode=True,
+    )
+
     result = model.generate_voice_clone(
         text=args.text,
-        ref_audio=args.ref_audio,
+        voice_clone_prompt=prompt,
         language="english",
     )
 
