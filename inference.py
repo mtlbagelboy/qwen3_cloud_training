@@ -38,6 +38,7 @@ def main():
     result = model.generate_custom_voice(
         text=args.text,
         speaker=args.speaker,
+        language="en",
     )
 
     # Handle different return formats
