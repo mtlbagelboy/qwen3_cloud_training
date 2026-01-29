@@ -55,6 +55,10 @@ def _write_embedded_html(out_path: Path, samples: List[Dict[str, Any]]) -> None:
     if marker not in html:
         raise RuntimeError(f"Missing marker {marker} in {template_path}")
     payload = json.dumps({"samples": samples}, ensure_ascii=False)
+    # Hardening: avoid accidental `</script>` termination or HTML parsing issues.
+    # Embed-safe JSON escapes per common practice.
+    payload = payload.replace("</", "<\\/")
+    payload = payload.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
     html = html.replace(marker, payload)
     out_path.write_text(html, encoding="utf-8")
 
