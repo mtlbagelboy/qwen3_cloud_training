@@ -10,6 +10,7 @@ Example:
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -24,11 +25,28 @@ def _iter_jsonl(path: Path) -> Iterable[Dict[str, Any]]:
 
 def _normalize_audio_path(p: str) -> str:
     # Store paths relative to repo root without leading "./" so the webview can
-    # safely reference them as "../<path>" from within /webview.
+    # reference them consistently.
     p = p.strip()
     if p.startswith("./"):
         p = p[2:]
     return p
+
+def _ensure_audio_symlink() -> None:
+    """
+    Make `webview/audio` a symlink to `../audio` so `webview/index*.html` can
+    load audio via relative paths under `file://` without needing a local server.
+    """
+    webview_dir = Path("webview")
+    webview_dir.mkdir(parents=True, exist_ok=True)
+    link_path = webview_dir / "audio"
+    target = Path("..") / "audio"
+
+    try:
+        if link_path.exists() or link_path.is_symlink():
+            return
+        os.symlink(str(target), str(link_path))
+    except OSError as e:
+        print(f"Warning: could not create symlink {link_path} -> {target}: {e}")
 
 def _write_embedded_html(out_path: Path, samples: List[Dict[str, Any]]) -> None:
     template_path = Path("webview/index.html")
@@ -76,6 +94,7 @@ def main() -> None:
         )
 
     out_path.write_text(json.dumps({"samples": samples}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ensure_audio_symlink()
     _write_embedded_html(Path(args.embedded_out), samples)
 
     print(f"Wrote {len(samples)} samples to {out_path}")
