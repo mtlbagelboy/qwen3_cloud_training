@@ -2,6 +2,10 @@
 audio/
 audio.zip
 
+# Local dataset browser artifacts
+webview/samples.json
+webview/index_embedded.html
+
 # Python
 __pycache__/
 *.pyc
