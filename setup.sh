@@ -17,7 +17,7 @@ pip install -q git+https://github.com/QwenLM/Qwen3-TTS.git
 
 # Download the base model from HuggingFace (if not already present)
 echo "Downloading Qwen3-TTS base model..."
-python -c "
+python3 -c "
 from huggingface_hub import snapshot_download
 snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='./Qwen3-TTS-12Hz-1.7B-Base')
 print('Model downloaded!')

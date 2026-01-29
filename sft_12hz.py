@@ -39,9 +39,16 @@ def train():
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--num_epochs", type=int, default=3)
     parser.add_argument("--speaker_name", type=str, default="speaker_test")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=4)
+    parser.add_argument("--codec_format", type=str, default="inference", choices=["inference", "teacher_forcing"])
     args = parser.parse_args()
 
-    accelerator = Accelerator(gradient_accumulation_steps=4, mixed_precision="bf16", log_with="tensorboard", project_dir="./logs")
+    accelerator = Accelerator(
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        mixed_precision="bf16",
+        log_with="tensorboard",
+        project_dir="./logs",
+    )
 
     MODEL_PATH = args.init_model_path
 
@@ -54,7 +61,7 @@ def train():
 
     train_data = open(args.train_jsonl).readlines()
     train_data = [json.loads(line) for line in train_data]
-    dataset = TTSDataset(train_data, qwen3tts.processor, config)
+    dataset = TTSDataset(train_data, qwen3tts.processor, config, codec_format=args.codec_format)
     train_dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, collate_fn=dataset.collate_fn)
 
     optimizer = AdamW(qwen3tts.model.parameters(), lr=args.lr, weight_decay=0.01)
@@ -90,7 +97,11 @@ def train():
                     model.talker.model.text_embedding(input_text_ids)
                 ) * text_embedding_mask
                 input_codec_embedding = model.talker.model.codec_embedding(input_codec_ids) * codec_embedding_mask
-                input_codec_embedding[:, 7, :] = speaker_embedding  # Position 7 to match inference format
+                # Replace the speaker placeholder position (the only position masked-out within attention).
+                speaker_pos = ((~codec_embedding_mask.squeeze(-1)) & attention_mask.bool()).nonzero()
+                if speaker_pos.numel() == 0 or speaker_pos.shape[0] != input_ids.shape[0]:
+                    raise RuntimeError("Failed to infer speaker placeholder position from codec_embedding_mask.")
+                input_codec_embedding[torch.arange(input_ids.shape[0], device=input_ids.device), speaker_pos[:, 1], :] = speaker_embedding
 
                 input_embeddings = input_text_embedding + input_codec_embedding
 

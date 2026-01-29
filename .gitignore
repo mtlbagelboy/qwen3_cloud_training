@@ -1,5 +1,6 @@
 # Audio files (too large for git)
 audio/
+audio.zip
 
 # Python
 __pycache__/

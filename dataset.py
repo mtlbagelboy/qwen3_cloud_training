@@ -31,12 +31,21 @@ AudioLike = Union[
 MaybeList = Union[Any, List[Any]]
 
 class TTSDataset(Dataset):
-    def __init__(self, data_list, processor, config: Qwen3TTSConfig, lag_num=-1, language="english"):
+    def __init__(
+        self,
+        data_list,
+        processor,
+        config: Qwen3TTSConfig,
+        lag_num: int = -1,
+        language: str = "english",
+        codec_format: str = "inference",
+    ):
         self.data_list = data_list
         self.processor = processor
         self.lag_num = lag_num
         self.config = config
         self.language = language
+        self.codec_format = codec_format
         # Get language ID from config (english=2050)
         self.language_id = config.talker_config.codec_language_id.get(language.lower(), 2050)
 
@@ -123,19 +132,13 @@ class TTSDataset(Dataset):
 
     def collate_fn(self, batch):
         """
-        FIXED: Match inference format exactly.
+        Build the 2-channel (text/codecs) sequence used by Qwen3-TTS.
 
-        Inference builds codec prefix as:
-            [think_id, think_bos_id, language_id, think_eos_id] + [speaker_embed] + [pad_id, bos_id]
-
-        In our sequence (codec channel starting at position 3):
-            pos 3: think_id
-            pos 4: think_bos_id
-            pos 5: language_id
-            pos 6: think_eos_id
-            pos 7: SPEAKER (placeholder=0, masked, replaced in training)
-            pos 8: pad_id
-            pos 9: bos_id
+        Note: Qwen3-TTS has had small variations in how the codec prefix / BOS is placed across
+        releases. This dataset supports two layouts via `codec_format`:
+          - "inference": matches this repo's current "prefix contains codec_bos" layout.
+          - "teacher_forcing": keeps codec_bos immediately before the first codec token label
+            (classic LM teacher-forcing), while still adding think+language tokens in the prefix.
         """
         assert self.lag_num == -1
 
@@ -159,43 +162,113 @@ class TTSDataset(Dataset):
             text_ids_len = text_ids.shape[1]
             codec_ids_len = audio_codec_0.shape[0]
 
-            # Text channel
-            input_ids[i, :3, 0] = text_ids[0, :3]
-            input_ids[i, 3:10, 0] = self.config.tts_pad_token_id
-            input_ids[i, 10, 0] = self.config.tts_bos_token_id
-            input_ids[i, 11:11 + text_ids_len - 3, 0] = text_ids[0, 3:]
-            input_ids[i, 11 + text_ids_len - 3, 0] = self.config.tts_eos_token_id
-            input_ids[i, 11 + text_ids_len - 2:11 + text_ids_len + codec_ids_len, 0] = self.config.tts_pad_token_id
-            text_embedding_mask[i, :11 + text_ids_len + codec_ids_len] = True
+            # Initialize both channels with pad ids to avoid accidental "0" tokens participating
+            # in attention when sequence length is shorter than the max_length buffer.
+            input_ids[i, :, 0] = self.config.tts_pad_token_id
+            input_ids[i, :, 1] = self.config.talker_config.codec_pad_id
 
-            # Codec channel - MATCHES INFERENCE FORMAT
-            # [think_id, think_bos_id, language_id, think_eos_id, SPEAKER, pad_id, bos_id]
-            #     3          4            5            6           7        8       9
-            input_ids[i, 3:10, 1] = torch.tensor([
-                self.config.talker_config.codec_think_id,      # pos 3
-                self.config.talker_config.codec_think_bos_id,  # pos 4
-                self.language_id,                               # pos 5
-                self.config.talker_config.codec_think_eos_id,  # pos 6
-                0,                                              # pos 7 = SPEAKER placeholder
-                self.config.talker_config.codec_pad_id,        # pos 8
-                self.config.talker_config.codec_bos_id,        # pos 9
-            ])
+            if self.codec_format == "teacher_forcing":
+                # Prefix (codec channel, fixed at pos>=3). Keep codec_bos immediately before the
+                # first audio codec label position (classic LM teacher forcing).
+                codec_prefix_start = 3
+                codec_prefix = [
+                    self.config.talker_config.codec_think_id,
+                    self.config.talker_config.codec_think_bos_id,
+                    self.language_id,
+                    self.config.talker_config.codec_think_eos_id,
+                    0,  # SPEAKER placeholder (masked; replaced in training)
+                    self.config.talker_config.codec_pad_id,
+                ]
+                speaker_pos = codec_prefix_start + 4
+                codec_prefix_end = codec_prefix_start + len(codec_prefix) - 1
 
-            input_ids[i, 10:10 + text_ids_len - 3, 1] = self.config.talker_config.codec_pad_id
-            input_ids[i, 10 + text_ids_len - 3, 1] = self.config.talker_config.codec_pad_id
-            input_ids[i, 10 + text_ids_len - 2:10 + text_ids_len - 2 + codec_ids_len, 1] = audio_codec_0
-            input_ids[i, 10 + text_ids_len - 2 + codec_ids_len, 1] = self.config.talker_config.codec_eos_token_id
+                # Text channel alignment: tts_bos aligned to last prefix token (as in the
+                # official dataset layout this repo started from).
+                text_bos_pos = codec_prefix_end
+                text_start = text_bos_pos + 1
+                text_tail_len = text_ids_len - 3
+                text_eos_pos = text_start + text_tail_len
 
-            codec_0_labels[i, 10 + text_ids_len - 2:10 + text_ids_len - 2 + codec_ids_len] = audio_codec_0
-            codec_0_labels[i, 10 + text_ids_len - 2 + codec_ids_len] = self.config.talker_config.codec_eos_token_id
+                codec_bos_pos = text_eos_pos + 1
+                audio_start = codec_bos_pos + 1
+                codec_eos_pos = audio_start + codec_ids_len
+                seq_len = codec_eos_pos + 1
 
-            codec_ids[i, 10 + text_ids_len - 2:10 + text_ids_len - 2 + codec_ids_len, :] = audio_codecs
+                # Text channel
+                input_ids[i, :3, 0] = text_ids[0, :3]
+                input_ids[i, text_bos_pos, 0] = self.config.tts_bos_token_id
+                input_ids[i, text_start:text_start + text_tail_len, 0] = text_ids[0, 3:]
+                input_ids[i, text_eos_pos, 0] = self.config.tts_eos_token_id
+                input_ids[i, text_eos_pos + 1:seq_len, 0] = self.config.tts_pad_token_id
+                text_embedding_mask[i, :seq_len] = True
 
-            codec_embedding_mask[i, 3:11 + text_ids_len + codec_ids_len] = True
-            codec_embedding_mask[i, 7] = False  # SPEAKER position (was 6, now 7)
+                # Codec channel
+                input_ids[i, codec_prefix_start:codec_prefix_end + 1, 1] = torch.tensor(codec_prefix, dtype=torch.long)
+                input_ids[i, codec_prefix_end + 1:codec_bos_pos, 1] = self.config.talker_config.codec_pad_id
+                input_ids[i, codec_bos_pos, 1] = self.config.talker_config.codec_bos_id
+                input_ids[i, audio_start:audio_start + codec_ids_len, 1] = audio_codec_0
+                input_ids[i, codec_eos_pos, 1] = self.config.talker_config.codec_eos_token_id
 
-            codec_mask[i, 10 + text_ids_len - 2:10 + text_ids_len - 2 + codec_ids_len] = True
-            attention_mask[i, :11 + text_ids_len + codec_ids_len] = True
+                codec_0_labels[i, audio_start:audio_start + codec_ids_len] = audio_codec_0
+                codec_0_labels[i, codec_eos_pos] = self.config.talker_config.codec_eos_token_id
+
+                codec_ids[i, audio_start:audio_start + codec_ids_len, :] = audio_codecs
+
+                codec_embedding_mask[i, codec_prefix_start:seq_len] = True
+                codec_embedding_mask[i, speaker_pos] = False
+                codec_mask[i, audio_start:audio_start + codec_ids_len] = True
+                attention_mask[i, :seq_len] = True
+            elif self.codec_format == "inference":
+                # Current repo layout: codec_bos is inside the fixed prefix after the speaker slot.
+                codec_prefix_start = 3
+                codec_prefix = [
+                    self.config.talker_config.codec_think_id,
+                    self.config.talker_config.codec_think_bos_id,
+                    self.language_id,
+                    self.config.talker_config.codec_think_eos_id,
+                    0,  # SPEAKER placeholder (masked; replaced in training)
+                    self.config.talker_config.codec_pad_id,
+                    self.config.talker_config.codec_bos_id,
+                ]
+                speaker_pos = codec_prefix_start + 4
+
+                # Text channel (repo's current offsets)
+                text_bos_pos = 10
+                text_start = 11
+                text_tail_len = text_ids_len - 3
+                text_eos_pos = text_start + text_tail_len
+                seq_len = 11 + text_ids_len + codec_ids_len
+
+                # Text channel
+                input_ids[i, :3, 0] = text_ids[0, :3]
+                input_ids[i, 3:text_bos_pos, 0] = self.config.tts_pad_token_id
+                input_ids[i, text_bos_pos, 0] = self.config.tts_bos_token_id
+                input_ids[i, text_start:text_start + text_tail_len, 0] = text_ids[0, 3:]
+                input_ids[i, text_eos_pos, 0] = self.config.tts_eos_token_id
+                input_ids[i, text_eos_pos + 1:seq_len, 0] = self.config.tts_pad_token_id
+                text_embedding_mask[i, :seq_len] = True
+
+                # Codec channel
+                input_ids[i, codec_prefix_start:codec_prefix_start + len(codec_prefix), 1] = torch.tensor(codec_prefix, dtype=torch.long)
+                input_ids[i, 10:10 + text_ids_len - 2, 1] = self.config.talker_config.codec_pad_id
+                audio_start = 10 + text_ids_len - 2
+                codec_eos_pos = audio_start + codec_ids_len
+                input_ids[i, audio_start:audio_start + codec_ids_len, 1] = audio_codec_0
+                input_ids[i, codec_eos_pos, 1] = self.config.talker_config.codec_eos_token_id
+                # Fill any remaining positions within seq_len (there are typically 2) with codec_pad.
+                input_ids[i, codec_eos_pos + 1:seq_len, 1] = self.config.talker_config.codec_pad_id
+
+                codec_0_labels[i, audio_start:audio_start + codec_ids_len] = audio_codec_0
+                codec_0_labels[i, codec_eos_pos] = self.config.talker_config.codec_eos_token_id
+
+                codec_ids[i, audio_start:audio_start + codec_ids_len, :] = audio_codecs
+
+                codec_embedding_mask[i, codec_prefix_start:seq_len] = True
+                codec_embedding_mask[i, speaker_pos] = False
+                codec_mask[i, audio_start:audio_start + codec_ids_len] = True
+                attention_mask[i, :seq_len] = True
+            else:
+                raise ValueError(f"Unknown codec_format: {self.codec_format!r}")
 
         ref_mels = [data['ref_mel'] for data in batch]
         max_mel_len = max(m.shape[1] for m in ref_mels)

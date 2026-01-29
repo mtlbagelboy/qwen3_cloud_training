@@ -16,7 +16,7 @@ def main():
                         help="Text to synthesize")
     parser.add_argument("--output", type=str, default="output.wav",
                         help="Output audio file path")
-    parser.add_argument("--speaker", type=str, default="michael_douglas",
+    parser.add_argument("--speaker", type=str, default="custom_speaker",
                         help="Speaker name (must match training)")
     args = parser.parse_args()
 

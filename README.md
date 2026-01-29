@@ -1,6 +1,6 @@
-# Qwen3-TTS Voice Cloning - Cloud Training
+# Qwen3-TTS Custom Voice Fine-tuning (Cloud Training)
 
-Fine-tune Qwen3-TTS-12Hz-1.7B on Michael Douglas voice samples.
+Fine-tune Qwen3-TTS-12Hz-1.7B for a **custom voice you have rights to use**.
 
 ## Files
 - `train.py` - Main training script (optimized for A100/4090)
@@ -58,5 +58,19 @@ cd output && zip -r checkpoint-best.zip checkpoint-best/
 from qwen_tts import Qwen3TTSModel
 
 model = Qwen3TTSModel.from_pretrained("./output/checkpoint-best")
-audio = model.generate("Hello, I am Spartacus!", speaker="michael_douglas")
+audio = model.generate("Hello!", speaker="custom_speaker")
 ```
+
+## Troubleshooting / Parity Checks
+
+If training runs but inference sounds wrong, run:
+
+```bash
+python audit_format_parity.py \
+  --model_path ./Qwen3-TTS-12Hz-1.7B-Base \
+  --train_jsonl ./train_with_codes.jsonl \
+  --codec_format inference \
+  --dump_inference_source
+```
+
+If you suspect codec BOS placement issues, try `--codec_format teacher_forcing` and compare the printed token window.

@@ -3,7 +3,7 @@
 ## Problem
 Fine-tuned model outputs garbage/Chinese noise instead of English speech.
 
-## Bug 1: Speaker Embedding Position Mismatch (FIXED, still broken)
+## Bug 1: Speaker Embedding Position Mismatch (FIXED)
 
 ### Training (dataset.py) - OLD/BROKEN
 ```
@@ -25,21 +25,16 @@ Speaker at position 4 (relative), HAS language token
 
 ### Fix Applied
 - `dataset.py`: Updated collate_fn to match inference codec prefix format
-- `sft_12hz.py`: Speaker injection moved to position 7
+- `sft_12hz.py` / `train.py`: Speaker injection now targets the placeholder position inferred from `codec_embedding_mask` (not a hard-coded index)
 
 **Result: Still garbage output. Position fix alone is not sufficient.**
 
 ---
 
-## Bug 2: text_projection Mismatch (NOT YET FIXED)
+## Bug 2: `text_projection` Mismatch (FIXED)
 
-### Training (sft_12hz.py)
-```python
-# Uses raw text_embedding directly - NO projection
-input_text_embedding = model.talker.model.text_embedding(input_text_ids) * text_embedding_mask
-input_codec_embedding = model.talker.model.codec_embedding(input_codec_ids) * codec_embedding_mask
-input_embeddings = input_text_embedding + input_codec_embedding
-```
+### Fix Applied
+- `sft_12hz.py` / `train.py`: Apply `model.talker.text_projection(...)` (when present) on top of text embeddings, matching the inference embedding path.
 
 ### Inference (modeling_qwen3_tts.py generate)
 ```python
@@ -61,10 +56,16 @@ _talker_input_embed = torch.cat((
 - If `text_projection` is a non-identity linear layer, the model learns one embedding space during training but sees a different one during inference
 - This would explain why the output is complete garbage regardless of position fixes
 
-### Next Steps
-- Check what `text_projection` actually is (Linear layer? Identity?)
-- Compare raw vs projected embedding values
-- If non-trivial, update sft_12hz.py training loop to use `text_projection` like inference does
+## Remaining Suspect: Codec BOS Placement / Layout Drift
+Qwen3-TTS has had small variations in where `codec_bos_id` lives relative to the codec labels (classic
+teacher-forcing expects `codec_bos_id` immediately before the first labeled codec token).
+
+This repo now supports two layouts via `TTSDataset(..., codec_format=...)`:
+- `codec_format="inference"`: keeps the repo's current "codec_bos in the fixed prefix" layout
+- `codec_format="teacher_forcing"`: places `codec_bos_id` immediately before the first labeled codec token
+
+Use `audit_format_parity.py` to print the token window and (optionally) snippets from your installed `qwen_tts`
+inference code to decide which format matches your version best.
 
 ---
 
